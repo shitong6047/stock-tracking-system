@@ -6,7 +6,7 @@ __pycache__/
 # Data
 /data/cache/
 /data/*.csv
-/data/*.json
+/data/*
 
 # Reports
 /reports/
