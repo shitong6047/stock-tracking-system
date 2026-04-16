@@ -1,6 +1,6 @@
 """
 文件解析模块
-功能：解析股票跟踪预测文件，支持CSV和JSON格式
+功能：解析股票跟踪预测文件，支持CSV、JSON和TXT格式
 """
 
 import os
@@ -42,12 +42,129 @@ class FileParser:
             return self.parse_csv(file_path)
         elif ext == '.json':
             return self.parse_json(file_path)
+        elif ext == '.txt':
+            return self.parse_txt(file_path)
         else:
             return {
                 'success': False,
                 'data': [],
                 'error': f'不支持的文件格式: {ext}'
             }
+    
+    def parse_txt(self, file_path: str) -> Dict:
+        """
+        解析TXT文件（每行一个股票代码）
+        
+        参数:
+            file_path: 文件路径
+            
+        返回:
+            解析结果字典
+        """
+        try:
+            # 检测文件编码
+            with open(file_path, 'rb') as f:
+                raw_data = f.read()
+                detected = chardet.detect(raw_data)
+                encoding = detected['encoding'] or 'utf-8'
+            
+            # 读取TXT文件
+            stocks = []
+            with open(file_path, 'r', encoding=encoding) as f:
+                for line_num, line in enumerate(f, 1):
+                    stock = self._parse_txt_line(line.strip(), line_num)
+                    if stock:
+                        stocks.append(stock)
+            
+            return {
+                'success': True,
+                'data': stocks,
+                'format': 'txt',
+                'total_count': len(stocks)
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'data': [],
+                'error': f'TXT解析失败: {str(e)}'
+            }
+    
+    def _parse_txt_line(self, line: str, line_num: int) -> Optional[Dict]:
+        """
+        解析TXT文件的一行
+        
+        参数:
+            line: 行内容
+            line_num: 行号
+            
+        返回:
+            股票字典或None
+        """
+        try:
+            # 跳过空行和注释行
+            if not line or line.startswith('#'):
+                return None
+            
+            # 提取股票代码
+            code = self._extract_code(line)
+            
+            if not code:
+                print(f"[警告] 第{line_num}行: 无法识别股票代码: {line}")
+                return None
+            
+            # 从代码推断股票名称（使用常见股票映射）
+            name = self._get_stock_name(code)
+            
+            stock = {
+                'code': code,
+                'name': name,
+                'date': datetime.now().strftime('%Y-%m-%d'),
+                'status': 'active',
+                'notes': ''
+            }
+            
+            return stock
+            
+        except Exception as e:
+            print(f"[警告] 第{line_num}行解析失败: {str(e)}")
+            return None
+    
+    def _get_stock_name(self, code: str) -> str:
+        """
+        根据股票代码获取股票名称
+        
+        参数:
+            code: 股票代码
+            
+        返回:
+            股票名称
+        """
+        # 常见股票代码映射
+        stock_names = {
+            '000001': '平安银行',
+            '000002': '万科A',
+            '000858': '五粮液',
+            '600036': '招商银行',
+            '600519': '贵州茅台',
+            '601988': '中国银行',
+            '601929': '吉视传媒',
+            '601919': '中远海控',
+            '000895': '双汇发展',
+            '002415': '海康威视',
+            '300750': '宁德时代',
+            '000651': '格力电器',
+            '600276': '恒瑞医药',
+            '600887': '伊利股份',
+            '000333': '美的集团',
+            '600030': '中信证券',
+            '600016': '民生银行',
+            '600028': '中国石化',
+            '600050': '中国联通',
+            '600104': '上汽集团'
+        }
+        
+        return stock_names.get(code, f'股票{code}')
     
     def parse_csv(self, file_path: str) -> Dict:
         """
@@ -216,7 +333,7 @@ class FileParser:
         
         参数:
             file_path: 文件路径
-            format_type: 文件格式 (csv/json)
+            format_type: 文件格式 (csv/json/txt)
         """
         sample_stocks = [
             {'code': '000001', 'name': '平安银行', 'date': '2024-01-01', 'status': 'active', 'notes': '银行股'},
@@ -239,6 +356,11 @@ class FileParser:
             }
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        elif format_type == 'txt':
+            with open(file_path, 'w', encoding='utf-8') as f:
+                for stock in sample_stocks:
+                    f.write(f"{stock['code']}\n")
         
         print(f"[创建] 示例{format_type.upper()}文件已创建: {file_path}")
     
@@ -302,5 +424,10 @@ class FileParser:
             }
             with open(output_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        elif format_type == 'txt':
+            with open(output_path, 'w', encoding='utf-8') as f:
+                for stock in stocks:
+                    f.write(f"{stock['code']}\n")
         
         print(f"[导出] 已导出 {len(stocks)} 只股票到 {output_path}")

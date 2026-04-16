@@ -20,7 +20,9 @@ from file_parser import FileParser
 from data_acquisition import DataAcquisition
 from technical_analysis import TechnicalAnalysis
 from value_evaluation import ValueEvaluation
-from prediction_model import PredictionModel, format_prediction_report
+from prediction_model import PredictionModel
+from global_news import GlobalNewsCollector
+from database import SupabaseStorage
 
 
 class StockTrackingSystem:
@@ -45,6 +47,8 @@ class StockTrackingSystem:
         self.ta = TechnicalAnalysis()
         self.ve = ValueEvaluation()
         self.model = PredictionModel(model_path=os.path.join(data_dir, 'models'))
+        self.news_collector = GlobalNewsCollector()
+        self.db_storage = SupabaseStorage()
         
         self.stock_pool_file = os.path.join(data_dir, 'stock_pool.json')
         self.tracking_log_file = os.path.join(data_dir, 'stock_tracking_log.csv')
@@ -89,6 +93,10 @@ class StockTrackingSystem:
             'stocks': stocks
         }
         
+        # 保存到Supabase（如果已配置）
+        self.db_storage.save_stock_pool(stocks)
+        
+        # 同时保存到本地文件作为备份
         with open(self.stock_pool_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         
@@ -130,6 +138,9 @@ class StockTrackingSystem:
                 
                 if alert_signal:
                     print(f"[提醒] {code} {data['name']}: {alert_signal}")
+        
+        # 保存到Supabase（如果已配置）
+        self.db_storage.save_tracking_log(tracking_results)
         
         self._save_tracking_log(tracking_results)
         
@@ -192,6 +203,17 @@ class StockTrackingSystem:
         返回:
             预测结果列表
         """
+        # 采集国际消息面数据
+        print("\n[步骤3.0] 采集国际消息面数据...")
+        global_news = self.news_collector.get_global_news(count=10)
+        self.db_storage.save_global_news(global_news)
+        
+        # 分析国际消息面影响
+        news_impact = self.news_collector.analyze_market_impact(global_news)
+        print(f"  乐观新闻: {news_impact['positive_news_count']}条")
+        print(f"  悲观新闻: {news_impact['negative_news_count']}条")
+        print(f"  市场情绪: {news_impact['market_sentiment']}")
+        
         predictions = []
         
         for stock in stocks:
@@ -201,6 +223,12 @@ class StockTrackingSystem:
             result = self.model.predict(code, self.data_acq)
             
             if result:
+                # 整合国际消息面影响
+                if news_impact['net_impact'] > 0:
+                    result.probability += 0.05
+                elif news_impact['net_impact'] < 0:
+                    result.probability -= 0.05
+                
                 predictions.append({
                     'code': result.code,
                     'name': result.name,
@@ -213,6 +241,7 @@ class StockTrackingSystem:
                 })
                 
                 self.model.save_prediction(result, self.report_dir)
+                self.db_storage.save_prediction(predictions[-1])
         
         return predictions
     
