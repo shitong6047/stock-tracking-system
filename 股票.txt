@@ -4,3 +4,4 @@
 #1.601988   中国银行
 #2.601929   吉视传媒
 #3.601919   中远海控
+#python.exe src/main.py -f data/stock_pool.txt

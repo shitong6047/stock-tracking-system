@@ -254,9 +254,18 @@ class SupabaseStorage:
         """使用Supabase保存跟踪日志"""
         try:
             for result in results:
-                result['created_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                data = {
+                    'created_at': result.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+                    'stock_code': result.get('stock_code', ''),
+                    'stock_name': result.get('stock_name', ''),
+                    'latest_price': result.get('latest_price'),
+                    'price_change_pct': result.get('price_change_pct'),
+                    'volume': result.get('volume'),
+                    'tracking_note': result.get('tracking_note', ''),
+                    'alert_signal': result.get('alert_signal', '')
+                }
                 
-                self.client.table('tracking_log').insert(result).execute()
+                self.client.table('tracking_log').insert(data).execute()
             
             print(f"[保存] 跟踪日志已保存到Supabase: {len(results)} 条记录")
             return True
