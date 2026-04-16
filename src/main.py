@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 股票跟踪预测系统 - 主程序
 功能：整合所有模块，提供完整的选股和预测功能
@@ -7,8 +9,12 @@ import os
 import sys
 import json
 import csv
+import argparse
 from datetime import datetime
 from typing import List, Dict, Optional
+
+# 添加项目根目录到Python路径
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from file_parser import FileParser
 from data_acquisition import DataAcquisition
@@ -79,6 +85,7 @@ class StockTrackingSystem:
         """
         data = {
             'create_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'stocks': stocks
         }
         
@@ -113,15 +120,8 @@ class StockTrackingSystem:
                     'stock_code': code,
                     'stock_name': data['name'],
                     'latest_price': data['latest_price'],
-                    'change_pct': data['change_pct'],
-                    'open_price': data.get('open', 0),
-                    'high_price': data.get('high', 0),
-                    'low_price': data.get('low', 0),
+                    'price_change_pct': data['change_pct'],
                     'volume': data['volume'],
-                    'amount': data['amount'],
-                    'turnover_rate': data['turnover_rate'],
-                    'pe_ratio': data['pe_ratio'],
-                    'dividend_yield': 0,
                     'tracking_note': '正常跟踪',
                     'alert_signal': alert_signal
                 }
@@ -170,9 +170,8 @@ class StockTrackingSystem:
         
         with open(self.tracking_log_file, 'a', encoding='utf-8-sig', newline='') as f:
             fieldnames = [
-                'timestamp', 'stock_code', 'stock_name', 'latest_price', 'change_pct',
-                'open_price', 'high_price', 'low_price', 'volume', 'amount',
-                'turnover_rate', 'pe_ratio', 'dividend_yield', 'tracking_note', 'alert_signal'
+                'timestamp', 'stock_code', 'stock_name', 'latest_price', 
+                'price_change_pct', 'volume', 'tracking_note', 'alert_signal'
             ]
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             
@@ -328,8 +327,6 @@ def create_sample_tracking_file(file_path: str = 'stock_tracking.json'):
 
 def main():
     """主函数"""
-    import argparse
-    
     arg_parser = argparse.ArgumentParser(description='股票跟踪预测系统')
     arg_parser.add_argument('-f', '--file', type=str, help='股票跟踪预测文件路径')
     arg_parser.add_argument('-m', '--mode', type=str, default='all', 
