@@ -1,0 +1,27 @@
+{
+  "data_dir": "./data",
+  "report_dir": "./reports",
+  "log_dir": "./logs",
+  "scope": "csi300",
+  "top_n": 10,
+  "lookback_days": 60,
+  "risk_tolerance": "medium",
+  "prediction_threshold": 0.6,
+  "enable_database": true,
+  "enable_news": true,
+  "log_level": "INFO",
+  "log_rotation": "500 MB",
+  "log_retention": "7 days",
+  "screen_filters": {
+    "min_market_cap": 50,
+    "max_pe_ratio": 100,
+    "min_turnover_rate": 1.0,
+    "exclude_st": true,
+    "exclude_new_stock_days": 60
+  },
+  "prediction_params": {
+    "feature_window": 20,
+    "model_type": "ensemble",
+    "confidence_weight": 0.7
+  }
+}

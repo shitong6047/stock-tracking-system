@@ -7,7 +7,7 @@ import os
 import json
 import csv
 import chardet
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set, Tuple
 from datetime import datetime
 import re
 
@@ -15,9 +15,159 @@ import re
 class FileParser:
     """股票跟踪预测文件解析器"""
     
-    def __init__(self):
+    # 股票代码格式常量
+    STOCK_CODE_PATTERN = re.compile(r'^\d{6}$')
+    STOCK_CODE_LENGTH = 6
+    A_STOCK_RANGE = (1, 999999)
+    
+    def __init__(self, whitelist: Optional[Set[str]] = None, blacklist: Optional[Set[str]] = None):
+        """
+        初始化文件解析器
+        
+        参数:
+            whitelist: 白名单，仅允许的股票代码集合（None表示不限制）
+            blacklist: 黑名单，禁止的股票代码集合（None表示不限制）
+        """
         self.required_fields = ['code', 'name']
         self.optional_fields = ['date', 'status', 'notes']
+        
+        # 白名单/黑名单机制
+        self.whitelist = whitelist if whitelist is not None else set()
+        self.blacklist = blacklist if blacklist is not None else set()
+        self._whitelist_enabled = len(self.whitelist) > 0
+        self._blacklist_enabled = len(self.blacklist) > 0
+    
+    def validate_stock_code(self, code: str, line_num: int = 0) -> Tuple[bool, str, str]:
+        """
+        验证股票代码的有效性
+        
+        参数:
+            code: 待验证的股票代码
+            line_num: 行号（用于错误消息）
+            
+        返回:
+            元组 (是否有效, 错误原因, 建议修正方案)
+        """
+        if not code or not isinstance(code, str):
+            return False, '代码为空或类型错误', '请提供有效的6位数字股票代码'
+        
+        code = code.strip()
+        
+        # 检查1：格式验证 - 必须是6位纯数字
+        if not self.STOCK_CODE_PATTERN.match(code):
+            # 分析具体错误原因
+            if len(code) == 0:
+                return False, '代码为空字符串', '请输入6位数字的股票代码，如：000001、600519'
+            elif len(code) != self.STOCK_CODE_LENGTH:
+                return (
+                    False,
+                    f'代码长度错误：期望{self.STOCK_CODE_LENGTH}位，实际{len(code)}位',
+                    f'请确保代码为{self.STOCK_CODE_LENGTH}位数字。当前代码"{code}"长度为{len(code)}位，'
+                    f'建议检查是否遗漏了前导零（如"1"应为"000001"）或包含多余字符'
+                )
+            elif not code.isdigit():
+                non_digit_chars = [c for c in code if not c.isdigit()]
+                return (
+                    False,
+                    f'代码包含非数字字符: {set(non_digit_chars)}',
+                    f'股票代码应仅包含数字字符(0-9)。当前代码"{code}"中包含非法字符{set(non_digit_chars)}，'
+                    f'建议移除非数字字符后重试'
+                )
+            else:
+                return False, '格式不符合要求', '请使用标准的6位A股代码格式（如000001-999999）'
+        
+        # 检查2：A股范围验证（000001-999999）
+        try:
+            code_num = int(code)
+            min_code, max_code = self.A_STOCK_RANGE
+            if code_num < min_code or code_num > max_code:
+                return (
+                    False,
+                    f'代码超出A股有效范围({min_code}-{max_code})',
+                    f'A股代码范围应在{min_code:06d}到{max_code:06d}之间，当前代码{code}超出此范围，'
+                    f'请确认是否为有效的A股代码'
+                )
+        except ValueError:
+            return False, '无法转换为数字', '请确认代码为有效的数字格式'
+        
+        # 检查3：黑名单检查
+        if self._blacklist_enabled and code in self.blacklist:
+            return (
+                False,
+                f'代码{code}在黑名单中',
+                f'该股票代码已被加入黑名单禁止使用。如需使用，请先从黑名单中移除'
+            )
+        
+        # 检查4：白名单检查
+        if self._whitelist_enabled and code not in self.whitelist:
+            whitelist_sample = list(self.whitelist)[:3]
+            return (
+                False,
+                f'代码{code}不在白名单中',
+                f'当前已启用白名单模式，仅允许以下范围内的代码：{whitelist_sample}'
+                f'{"..." if len(self.whitelist) > 3 else ""}。请将{code}添加到白名单后重试'
+            )
+        
+        # 所有检查通过
+        return True, '', ''
+    
+    def add_to_whitelist(self, codes: List[str]) -> None:
+        """
+        添加代码到白名单
+        
+        参数:
+            codes: 要添加的代码列表
+        """
+        for code in codes:
+            if code and isinstance(code, str):
+                code = code.strip()
+                # 仅进行基本格式验证（6位数字），不检查黑白名单状态
+                if self.STOCK_CODE_PATTERN.match(code):
+                    self.whitelist.add(code)
+        self._whitelist_enabled = len(self.whitelist) > 0
+    
+    def add_to_blacklist(self, codes: List[str]) -> None:
+        """
+        添加代码到黑名单
+        
+        参数:
+            codes: 要添加的代码列表
+        """
+        for code in codes:
+            if code and isinstance(code, str):
+                code = code.strip()
+                # 仅进行基本格式验证（6位数字），不检查黑白名单状态
+                if self.STOCK_CODE_PATTERN.match(code):
+                    self.blacklist.add(code)
+        self._blacklist_enabled = len(self.blacklist) > 0
+    
+    def remove_from_whitelist(self, codes: List[str]) -> None:
+        """从白名单移除代码"""
+        for code in codes:
+            self.whitelist.discard(code.strip())
+        self._whitelist_enabled = len(self.whitelist) > 0
+    
+    def remove_from_blacklist(self, codes: List[str]) -> None:
+        """从黑名单移除代码"""
+        for code in codes:
+            self.blacklist.discard(code.strip())
+        self._blacklist_enabled = len(self.blacklist) > 0
+    
+    def get_validation_stats(self) -> Dict:
+        """
+        获取验证配置统计信息
+        
+        返回:
+            配置信息字典
+        """
+        return {
+            'whitelist_enabled': self._whitelist_enabled,
+            'blacklist_enabled': self._blacklist_enabled,
+            'whitelist_count': len(self.whitelist),
+            'blacklist_count': len(self.blacklist),
+            'whitelist_codes': sorted(list(self.whitelist))[:10],
+            'blacklist_codes': sorted(list(self.blacklist))[:10]
+        }
     
     def parse_file(self, file_path: str) -> Dict:
         """
@@ -92,7 +242,7 @@ class FileParser:
     
     def _parse_txt_line(self, line: str, line_num: int) -> Optional[Dict]:
         """
-        解析TXT文件的一行
+        解析TXT文件的一行（带严格验证）
         
         参数:
             line: 行内容
@@ -110,7 +260,24 @@ class FileParser:
             code = self._extract_code(line)
             
             if not code:
-                print(f"[警告] 第{line_num}行: 无法识别股票代码: {line}")
+                print(
+                    f"[错误] 第{line_num}行: 无法识别股票代码\n"
+                    f"  └─ 原始内容: \"{line}\"\n"
+                    f"  └─ 原因: 无法从该行提取有效的股票代码\n"
+                    f"  └─ 建议: 请确保每行只包含一个6位数字的股票代码（如：000001、600519）"
+                )
+                return None
+            
+            # 执行严格的股票代码验证
+            is_valid, error_reason, suggestion = self.validate_stock_code(code, line_num)
+            
+            if not is_valid:
+                print(
+                    f"[错误] 第{line_num}行: 股票代码验证失败\n"
+                    f"  └─ 原始代码: \"{code}\"\n"
+                    f"  └─ 无效原因: {error_reason}\n"
+                    f"  └─ 建议修正: {suggestion}"
+                )
                 return None
             
             # 从代码推断股票名称（使用常见股票映射）
@@ -127,12 +294,18 @@ class FileParser:
             return stock
             
         except Exception as e:
-            print(f"[警告] 第{line_num}行解析失败: {str(e)}")
+            print(
+                f"[错误] 第{line_num}行: 解析过程发生异常\n"
+                f"  └─ 原始内容: \"{line}\"\n"
+                f"  └─ 异常类型: {type(e).__name__}\n"
+                f"  └─ 异常信息: {str(e)}\n"
+                f"  └─ 建议: 请检查该行格式是否符合要求或联系技术支持"
+            )
             return None
     
     def _get_stock_name(self, code: str) -> str:
         """
-        根据股票代码获取股票名称
+        根据股票代码获取股票名称（带未知代码智能提示）
         
         参数:
             code: 股票代码
@@ -140,6 +313,9 @@ class FileParser:
         返回:
             股票名称
         """
+        if not code or not isinstance(code, str):
+            return '未知股票'
+        
         # 常见股票代码映射
         stock_names = {
             '000001': '平安银行',
@@ -164,7 +340,34 @@ class FileParser:
             '600104': '上汽集团'
         }
         
-        return stock_names.get(code, f'股票{code}')
+        # 查找已知股票名称
+        known_name = stock_names.get(code)
+        
+        if known_name:
+            return known_name
+        
+        # 未知代码的智能识别与提示
+        code_prefix = code[:3] if len(code) >= 3 else code[:1]
+        
+        # 根据代码前缀推断市场类型
+        market_info = {
+            '000': '(深市主板)',
+            '001': '(深市主板)',
+            '002': '(中小板)',
+            '003': '(中小板)',
+            '300': '(创业板)',
+            '301': '(创业板)',
+            '600': '(沪市主板)',
+            '601': '(沪市主板)',
+            '603': '(沪市主板)',
+            '605': '(沪市主板)',
+            '688': '(科创板)',
+            '689': '(科创板)'
+        }
+        
+        market_hint = market_info.get(code_prefix, '(未知市场)')
+        
+        return f'待确认股票{code}{market_hint}'
     
     def parse_csv(self, file_path: str) -> Dict:
         """
@@ -261,7 +464,7 @@ class FileParser:
     
     def _parse_row(self, row: Dict, row_num: int) -> Optional[Dict]:
         """
-        解析单行数据
+        解析单行数据（带严格验证）
         
         参数:
             row: 行数据
@@ -275,9 +478,35 @@ class FileParser:
             code = self._extract_code(row.get('code') or row.get('股票代码') or row.get('symbol'))
             name = row.get('name') or row.get('股票名称') or row.get('stock_name') or ''
             
-            if not code or not name:
-                print(f"[警告] 第{row_num}行: 缺少必要字段 (code, name)")
+            if not code:
+                print(
+                    f"[错误] 第{row_num}行: 缺少必要字段 - 股票代码\n"
+                    f"  └─ 原始数据: {row}\n"
+                    f"  └─ 原因: 未找到有效的股票代码字段（code/股票代码/symbol）\n"
+                    f"  └─ 建议: 请确保每行包含'code'、'股票代码'或'symbol'字段"
+                )
                 return None
+            
+            # 执行严格的股票代码验证
+            is_valid, error_reason, suggestion = self.validate_stock_code(code, row_num)
+            
+            if not is_valid:
+                print(
+                    f"[错误] 第{row_num}行: 股票代码验证失败\n"
+                    f"  └─ 原始代码: \"{code}\"\n"
+                    f"  └─ 无效原因: {error_reason}\n"
+                    f"  └─ 建议修正: {suggestion}"
+                )
+                return None
+            
+            if not name or not str(name).strip():
+                print(
+                    f"[警告] 第{row_num}行: 股票名称为空\n"
+                    f"  └─ 股票代码: {code}\n"
+                    f"  └─ 原因: 未找到有效的股票名称字段或值为空\n"
+                    f"  └─ 处理: 将使用自动推断的名称"
+                )
+                name = self._get_stock_name(code)
             
             # 构建股票信息
             stock = {
@@ -296,7 +525,13 @@ class FileParser:
             return stock
             
         except Exception as e:
-            print(f"[警告] 第{row_num}行解析失败: {str(e)}")
+            print(
+                f"[错误] 第{row_num}行: 解析过程发生异常\n"
+                f"  └─ 原始数据: {row}\n"
+                f"  └─ 异常类型: {type(e).__name__}\n"
+                f"  └─ 异常信息: {str(e)}\n"
+                f"  └─ 建议: 请检查该行数据格式是否符合要求或联系技术支持"
+            )
             return None
     
     def _extract_code(self, code: str) -> str:
